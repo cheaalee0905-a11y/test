@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tetris</title>
+  <style>
+    body {
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: white;
+      font-family: sans-serif;
+      gap: 20px;
+    }
+    canvas {
+      border: 3px solid #555;
+      background: black;
+    }
+    .panel {
+      font-size: 18px;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="tetris" width="300" height="600"></canvas>
+
+  <div class="panel">
+    <div>점수: <span id="score">0</span></div>
+    <div>줄: <span id="lines">0</span></div>
+    <div>레벨: <span id="level">1</span></div>
+    <hr>
+    <div>⬅ ➡ 이동</div>
+    <div>⬆ 회전</div>
+    <div>⬇ 소프트 드롭</div>
+    <div>Space 하드 드롭</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("tetris");
+    const ctx = canvas.getContext("2d");
+
+    const scoreEl = document.getElementById("score");
+    const linesEl = document.getElementById("lines");
+    const levelEl = document.getElementById("level");
+
+    const COLS = 10;
+    const ROWS = 20;
+    const BLOCK = 30;
+
+    ctx.scale(BLOCK, BLOCK);
+
+    const COLORS = [null,"cyan","blue","orange","yellow","green","purple","red"];
+
+    const SHAPES = [
+      [],
+      [[1,1,1,1]],
+      [[2,0,0],[2,2,2]],
+      [[0,0,3],[3,3,3]],
+      [[4,4],[4,4]],
+      [[0,5,5],[5,5,0]],
+      [[0,6,0],[6,6,6]],
+      [[7,7,0],[0,7,7]]
+    ];
+
+    function createMatrix(w, h) {
+      return Array.from({ length: h }, () => Array(w).fill(0));
+    }
+
+    const arena = createMatrix(COLS, ROWS);
+
+    const player = {
+      pos: { x: 0, y: 0 },
+      matrix: null,
+      score: 0,
+      lines: 0,
+      level: 1
+    };
+
+    function vibrate(ms) {
+      if (navigator.vibrate) navigator.vibrate(ms);
+    }
+
+    function drawMatrix(matrix, offset) {
+      matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            ctx.fillStyle = COLORS[value];
+            ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+          }
+        });
+      });
+    }
+
+    function collide(arena, player) {
+      const m = player.matrix;
+      const o = player.pos;
+      for (let y = 0; y < m.length; y++) {
+        for (let x = 0; x < m[y].length; x++) {
+          if (
+            m[y][x] !== 0 &&
+            (arena[y + o.y] &&
+             arena[y + o.y][x + o.x]) !== 0
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function merge(arena, player) {
+      player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            arena[y + player.pos.y][x + player.pos.x] = value;
+          }
+        });
+      });
+    }
+
+    function rotate(matrix) {
+      return matrix[0].map((_, i) =>
+        matrix.map(row => row[i]).reverse()
+      );
+    }
+
+    function clearLines() {
+      let cleared = 0;
+
+      outer: for (let y = arena.length - 1; y >= 0; y--) {
+        for (let x = 0; x < arena[y].length; x++) {
+          if (arena[y][x] === 0) continue outer;
+        }
+        arena.splice(y, 1);
+        arena.unshift(Array(COLS).fill(0));
+        cleared++;
+        y++;
+      }
+
+      if (cleared > 0) {
+        vibrate(100);
+        player.lines += cleared;
+        player.score += [0, 100, 300, 500, 800][cleared] * player.level;
+        player.level = Math.floor(player.lines / 10) + 1;
+        dropInterval = Math.max(100, 800 - (player.level - 1) * 70);
+        updatePanel();
+      }
+    }
+
+    function updatePanel() {
+      scoreEl.textContent = player.score;
+      linesEl.textContent = player.lines;
+      levelEl.textContent = player.level;
+    }
+
+    function resetPlayer() {
+      player.matrix = SHAPES[(Math.random() * 7 + 1) | 0];
+      player.pos.y = 0;
+      player.pos.x = (COLS / 2 | 0) - (player.matrix[0].length / 2 | 0);
+
+      if (collide(arena, player)) {
+        arena.forEach(row => row.fill(0));
+        player.score = 0;
+        player.lines = 0;
+        player.level = 1;
+        dropInterval = 800;
+        updatePanel();
+      }
+    }
+
+    function playerDrop() {
+      player.pos.y++;
+      if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        resetPlayer();
+        clearLines();
+      }
+      dropCounter = 0;
+    }
+
+    function hardDrop() {
+      while (!collide(arena, player)) {
+        player.pos.y++;
+      }
+      player.pos.y--;
+      merge(arena, player);
+      vibrate(40);
+      resetPlayer();
+      clearLines();
+    }
+
+    function draw() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawMatrix(arena, { x: 0, y: 0 });
+      drawMatrix(player.matrix, player.pos);
+    }
+
+    let dropCounter = 0;
+    let dropInterval = 800;
+    let lastTime = 0;
+
+    function update(time = 0) {
+      const delta = time - lastTime;
+      lastTime = time;
+      dropCounter += delta;
+      if (dropCounter > dropInterval) playerDrop();
+      draw();
+      requestAnimationFrame(update);
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "ArrowLeft") {
+        player.pos.x--;
+        if (collide(arena, player)) player.pos.x++;
+      } else if (e.key === "ArrowRight") {
+        player.pos.x++;
+        if (collide(arena, player)) player.pos.x--;
+      } else if (e.key === "ArrowDown") {
+        playerDrop();
+      } else if (e.key === "ArrowUp") {
+        const r = rotate(player.matrix);
+        const old = player.matrix;
+        player.matrix = r;
+        if (collide(arena, player)) player.matrix = old;
+      } else if (e.code === "Space") {
+        hardDrop();
+      }
+    });
+
+    resetPlayer();
+    update();
+  </script>
+</body>
+</html>
